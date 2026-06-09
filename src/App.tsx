@@ -75,6 +75,37 @@ export function App() {
   const [replayError, setReplayError] = useState<string | null>(null);
 
   useEffect(() => {
+    // Extract and validate apiHost from query parameters
+    const params = new URLSearchParams(window.location.search);
+    let apiHostValue = params.get('apiHost');
+
+    if (!apiHostValue) {
+      return;
+    }
+
+    // Try to decode if it looks like base64
+    try {
+      if (/^[A-Za-z0-9+/]*={0,2}$/.test(apiHostValue)) {
+        const decoded = atob(apiHostValue);
+        // Verify it decoded to something that looks like a URL
+        if (decoded.startsWith('http://') || decoded.startsWith('https://')) {
+          apiHostValue = decoded;
+        }
+      }
+    } catch {
+      // If decoding fails, just use the original value
+    }
+
+    // Validate URL
+    try {
+      new URL(apiHostValue);
+      setHost(apiHostValue);
+    } catch {
+      // Invalid URL, ignore silently
+    }
+  }, []);
+
+  useEffect(() => {
     writeStoredConfig({ host, apiKey });
   }, [apiKey, host]);
 
