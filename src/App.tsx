@@ -371,6 +371,14 @@ export function App() {
     const replayBookingKey = deriveBookingAttemptKey(record.request);
     if (record.response.ok && replayBookingKey) {
       setSuccessfulBookingKeys(existing => new Set(existing).add(replayBookingKey));
+      setBlockedBookingKeys(existing => {
+        if (!existing.has(replayBookingKey)) {
+          return existing;
+        }
+        const next = new Set(existing);
+        next.delete(replayBookingKey);
+        return next;
+      });
     }
   }
 
@@ -755,7 +763,7 @@ export function App() {
                 {alreadyBookedLocally ? (
                   <p className="warning-text">This exact calendar/date/time combination was already booked successfully in this browser session.</p>
                 ) : null}
-                {blockedBookingLocally ? (
+                {blockedBookingLocally && !alreadyBookedLocally ? (
                   <p className="warning-text">
                     This exact calendar/date/time combination previously failed with a conflict or unavailable-slot response.
                   </p>
