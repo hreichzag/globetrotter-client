@@ -127,6 +127,7 @@ export function App() {
   });
 
   const currentBookingAttemptKey = deriveBookingAttemptKeyFromParts(selectedCalendarId, bookingDate, bookingTime);
+  const alreadyBookedLocally = currentBookingAttemptKey ? successfulBookingKeys.has(currentBookingAttemptKey) : false;
   const blockedBookingLocally = currentBookingAttemptKey ? blockedBookingKeys.has(currentBookingAttemptKey) : false;
   const availableBookingTimes = useMemo(
     () => getAvailableBookingTimes(availability, selectedPersonId, bookingDate),
@@ -284,9 +285,45 @@ export function App() {
       return;
     }
 
+    if (alreadyBookedLocally) {
+      setBookingError('Client blocked this request. This calendar slot was already booked successfully in this demo session.');
+      return;
+    }
+
     if (blockedBookingLocally) {
       setBookingError('Client blocked this request. A previous attempt for this calendar/date/time failed due to conflict or unavailable slot.');
       return;
+    }
+
+    if (selectedPersonId) {
+      const preflightAvailabilityRecord = await runCall({
+        key: 'booking-preflight-availability',
+        title: 'Preflight availability check before booking',
+        path: '/api/v1/calendar/availability',
+        query: {
+          personIds: selectedPersonId,
+          from: bookingDate,
+          to: bookingDate,
+          slotStepMinutes: '15',
+          needs: 'shift.bookable',
+          blockers: 'absences,meetings,booked-slots,holidays,team-meetings',
+          include: 'location,categories',
+        },
+      });
+
+      if (preflightAvailabilityRecord.response.ok) {
+        const freshAvailability = parseAvailability(preflightAvailabilityRecord.response.data);
+        setAvailability(freshAvailability);
+
+        const freshBookingTimes = getAvailableBookingTimes(freshAvailability, selectedPersonId, bookingDate);
+        if (!freshBookingTimes.includes(bookingTime)) {
+          setBookingError('This slot is no longer available according to fresh availability data. Please choose another time.');
+          if (currentBookingAttemptKey) {
+            setBlockedBookingKeys(existing => new Set(existing).add(currentBookingAttemptKey));
+          }
+          return;
+        }
+      }
     }
 
     setBookingError(null);
@@ -695,13 +732,19 @@ export function App() {
                   disabled={
                     !selectedCalendarId ||
                     !bookingTime ||
+                    busyKey === 'booking-preflight-availability' ||
                     busyKey === 'booking-write' ||
                     !canRunReadCall(host, apiKey) ||
+                    alreadyBookedLocally ||
                     blockedBookingLocally
                   }
                   onClick={runBookingCall}
                 >
-                  {busyKey === 'booking-write' ? 'Sending...' : 'Send booking call'}
+                  {busyKey === 'booking-preflight-availability'
+                    ? 'Checking availability...'
+                    : busyKey === 'booking-write'
+                    ? 'Sending...'
+                    : 'Send booking call'}
                 </button>
                 {availableBookingTimes.length === 0 ? (
                   <p className="warning-text">
@@ -709,6 +752,9 @@ export function App() {
                   </p>
                 ) : null}
                 {bookingError ? <p className="error-text">{bookingError}</p> : null}
+                {alreadyBookedLocally ? (
+                  <p className="warning-text">This exact calendar/date/time combination was already booked successfully in this browser session.</p>
+                ) : null}
                 {blockedBookingLocally ? (
                   <p className="warning-text">
                     This exact calendar/date/time combination previously failed with a conflict or unavailable-slot response.
