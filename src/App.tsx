@@ -34,6 +34,7 @@ import type {
   CustomPropertyDefinition,
   Person,
   PersonCalendar,
+  ResponseDescriptor,
   ReplayDraft,
   Skill,
   WorkLocationResolution,
@@ -70,6 +71,7 @@ export function App() {
   const [bookingError, setBookingError] = useState<string | null>(null);
 
   const [successfulBookingKeys, setSuccessfulBookingKeys] = useState<Set<string>>(new Set());
+  const [blockedBookingKeys, setBlockedBookingKeys] = useState<Set<string>>(new Set());
   const [replayDraft, setReplayDraft] = useState<ReplayDraft | null>(null);
   const [replayBusy, setReplayBusy] = useState(false);
   const [replayError, setReplayError] = useState<string | null>(null);
@@ -125,7 +127,7 @@ export function App() {
   });
 
   const currentBookingAttemptKey = deriveBookingAttemptKeyFromParts(selectedCalendarId, bookingDate, bookingTime);
-  const alreadyBookedLocally = currentBookingAttemptKey ? successfulBookingKeys.has(currentBookingAttemptKey) : false;
+  const blockedBookingLocally = currentBookingAttemptKey ? blockedBookingKeys.has(currentBookingAttemptKey) : false;
   const availableBookingTimes = useMemo(
     () => getAvailableBookingTimes(availability, selectedPersonId, bookingDate),
     [availability, bookingDate, selectedPersonId]
@@ -282,8 +284,8 @@ export function App() {
       return;
     }
 
-    if (alreadyBookedLocally) {
-      setBookingError('Client blocked this request. This calendar slot was already booked successfully in this demo session.');
+    if (blockedBookingLocally) {
+      setBookingError('Client blocked this request. A previous attempt for this calendar/date/time failed due to conflict or unavailable slot.');
       return;
     }
 
@@ -296,8 +298,8 @@ export function App() {
       body: bookingPayload,
     });
 
-    if (record.response.ok && currentBookingAttemptKey) {
-      setSuccessfulBookingKeys(existing => new Set(existing).add(currentBookingAttemptKey));
+    if (!record.response.ok && currentBookingAttemptKey && isConflictOrUnavailable(record.response)) {
+      setBlockedBookingKeys(existing => new Set(existing).add(currentBookingAttemptKey));
     }
   }
 
@@ -386,6 +388,36 @@ export function App() {
     rememberCall(record);
     setReplayBusy(false);
     setReplayDraft(null);
+  }
+
+  function isConflictOrUnavailable(response: ResponseDescriptor): boolean {
+    if (response.status === 409 || response.status === 422) {
+      return true;
+    }
+
+    const responseText = stringifyResponseData(response.data).toLowerCase();
+    return (
+      responseText.includes('conflict') ||
+      responseText.includes('not available') ||
+      responseText.includes('unavailable') ||
+      responseText.includes('already booked')
+    );
+  }
+
+  function stringifyResponseData(data: unknown): string {
+    if (typeof data === 'string') {
+      return data;
+    }
+
+    if (data === null || data === undefined) {
+      return '';
+    }
+
+    try {
+      return JSON.stringify(data);
+    } catch {
+      return '';
+    }
   }
 
   return (
@@ -665,7 +697,7 @@ export function App() {
                     !bookingTime ||
                     busyKey === 'booking-write' ||
                     !canRunReadCall(host, apiKey) ||
-                    alreadyBookedLocally
+                    blockedBookingLocally
                   }
                   onClick={runBookingCall}
                 >
@@ -677,9 +709,9 @@ export function App() {
                   </p>
                 ) : null}
                 {bookingError ? <p className="error-text">{bookingError}</p> : null}
-                {alreadyBookedLocally ? (
+                {blockedBookingLocally ? (
                   <p className="warning-text">
-                    This exact calendar/date/time combination was already booked successfully in this browser session.
+                    This exact calendar/date/time combination previously failed with a conflict or unavailable-slot response.
                   </p>
                 ) : null}
               </div>
