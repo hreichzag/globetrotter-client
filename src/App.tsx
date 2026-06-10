@@ -742,9 +742,7 @@ export function App() {
                     !bookingTime ||
                     busyKey === 'booking-preflight-availability' ||
                     busyKey === 'booking-write' ||
-                    !canRunReadCall(host, apiKey) ||
-                    alreadyBookedLocally ||
-                    blockedBookingLocally
+                    !canRunReadCall(host, apiKey)
                   }
                   onClick={runBookingCall}
                 >
@@ -760,14 +758,6 @@ export function App() {
                   </p>
                 ) : null}
                 {bookingError ? <p className="error-text">{bookingError}</p> : null}
-                {alreadyBookedLocally ? (
-                  <p className="warning-text">This exact calendar/date/time combination was already booked successfully in this browser session.</p>
-                ) : null}
-                {blockedBookingLocally && !alreadyBookedLocally ? (
-                  <p className="warning-text">
-                    This exact calendar/date/time combination previously failed with a conflict or unavailable-slot response.
-                  </p>
-                ) : null}
               </div>
             }
             codeSample={formatJson(bookingPayload)}
