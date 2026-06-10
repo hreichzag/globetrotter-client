@@ -43,6 +43,13 @@ import type {
 
 const BOOKING_CATEGORY_OPTIONS: BookingCategory[] = ['Video call', 'Phone call', 'On-site'];
 
+function buildDateRangeForAvailability(dateIso: string): { from: string; to: string } {
+  return {
+    from: dateIso,
+    to: addDaysIso(dateIso, 1),
+  };
+}
+
 export function App() {
   const storedConfig = readStoredConfig();
   const [host, setHost] = useState(storedConfig.host || 'http://localhost:3000');
@@ -167,6 +174,7 @@ export function App() {
     }
 
     let cancelled = false;
+    const bookingDayRange = buildDateRangeForAvailability(bookingDate);
 
     async function refreshBookingAvailability() {
       const record = await runCall({
@@ -175,8 +183,8 @@ export function App() {
         path: '/api/v1/calendar/availability',
         query: {
           personIds: selectedPersonId,
-          from: bookingDate,
-          to: bookingDate,
+          from: bookingDayRange.from,
+          to: bookingDayRange.to,
           slotStepMinutes: '15',
           needs: 'shift.bookable',
           blockers: 'absences,meetings,booked-slots,holidays,team-meetings',
@@ -343,14 +351,15 @@ export function App() {
     }
 
     if (selectedPersonId) {
+      const bookingDayRange = buildDateRangeForAvailability(bookingDate);
       const preflightAvailabilityRecord = await runCall({
         key: 'booking-preflight-availability',
         title: 'Preflight availability check before booking',
         path: '/api/v1/calendar/availability',
         query: {
           personIds: selectedPersonId,
-          from: bookingDate,
-          to: bookingDate,
+          from: bookingDayRange.from,
+          to: bookingDayRange.to,
           slotStepMinutes: '15',
           needs: 'shift.bookable',
           blockers: 'absences,meetings,booked-slots,holidays,team-meetings',

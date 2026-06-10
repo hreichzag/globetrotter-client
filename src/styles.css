@@ -369,11 +369,17 @@ pre::-webkit-scrollbar-thumb:hover {
 }
 
 .modal-grid {
+  grid-template-columns: minmax(120px, 0.42fr) minmax(0, 1.58fr);
   margin: 1rem 0;
 }
 
+.modal-method-field {
+  min-width: 0;
+}
+
 .modal-url-field {
-  grid-column: 2 / -1;
+  grid-column: 2;
+  min-width: 0;
 }
 
 .path-input-group {
@@ -398,6 +404,8 @@ pre::-webkit-scrollbar-thumb:hover {
 }
 
 .path-input-group input {
+  flex: 1;
+  min-width: 0;
   border: none;
   border-radius: 0;
   background: transparent;

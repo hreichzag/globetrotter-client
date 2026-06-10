@@ -31,7 +31,7 @@ export function ReplayDialog(props: {
         </div>
 
         <div className="form-grid modal-grid">
-          <label className="field-block">
+          <label className="field-block modal-method-field">
             <span>Method</span>
             <input disabled value={props.draft.method} />
           </label>
