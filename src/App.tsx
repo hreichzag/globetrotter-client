@@ -12,6 +12,7 @@ import {
   extractPathFromUrl,
   findCall,
   formatJson,
+  DEFAULT_TIME_SLOTS,
   getAvailableBookingTimes,
   getAvailableCategoriesForSlot,
   parseAvailability,
@@ -39,6 +40,8 @@ import type {
   Skill,
   WorkLocationResolution,
 } from './types';
+
+const BOOKING_CATEGORY_OPTIONS: BookingCategory[] = ['Video call', 'Phone call', 'On-site'];
 
 export function App() {
   const storedConfig = readStoredConfig();
@@ -138,6 +141,8 @@ export function App() {
     () => getAvailableCategoriesForSlot(availability, selectedPersonId, bookingDate, bookingTime),
     [availability, bookingDate, bookingTime, selectedPersonId]
   );
+  const availableBookingTimesSet = useMemo(() => new Set(availableBookingTimes), [availableBookingTimes]);
+  const availableCategoriesSet = useMemo(() => new Set(availableCategories), [availableCategories]);
 
   useEffect(() => {
     if (availableBookingTimes.length === 0) {
@@ -155,6 +160,43 @@ export function App() {
       setBookingCategory(availableCategories[0]);
     }
   }, [availableCategories, bookingCategory]);
+
+  useEffect(() => {
+    if (!selectedPersonId || !bookingDate || !canRunReadCall(host, apiKey)) {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function refreshBookingAvailability() {
+      const record = await runCall({
+        key: 'booking-form-availability',
+        title: 'Refresh booking availability for selected date/person',
+        path: '/api/v1/calendar/availability',
+        query: {
+          personIds: selectedPersonId,
+          from: bookingDate,
+          to: bookingDate,
+          slotStepMinutes: '15',
+          needs: 'shift.bookable',
+          blockers: 'absences,meetings,booked-slots,holidays,team-meetings',
+          include: 'location,categories',
+        },
+      });
+
+      if (cancelled || !record.response.ok) {
+        return;
+      }
+
+      setAvailability(parseAvailability(record.response.data));
+    }
+
+    void refreshBookingAvailability();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [apiKey, bookingDate, host, selectedPersonId]);
 
   async function runPersonsCall() {
     const record = await runCall({
@@ -292,6 +334,11 @@ export function App() {
 
     if (blockedBookingLocally) {
       setBookingError('Client blocked this request. A previous attempt for this calendar/date/time failed due to conflict or unavailable slot.');
+      return;
+    }
+
+    if (!availableCategoriesSet.has(bookingCategory)) {
+      setBookingError('Selected meeting type is not available for this slot. Please choose an available meeting type.');
       return;
     }
 
@@ -689,23 +736,27 @@ export function App() {
                   <label className="field-block">
                     <span>Available start time</span>
                     <select
-                      disabled={availableBookingTimes.length === 0}
+                      disabled={busyKey === 'booking-form-availability' || availableBookingTimes.length === 0}
                       value={bookingTime}
                       onChange={event => setBookingTime(event.target.value)}
                     >
                       {availableBookingTimes.length === 0 ? <option value="">No available 15-minute slots</option> : null}
-                      {availableBookingTimes.map(time => (
-                        <option key={time} value={time}>
-                          {time}
+                      {DEFAULT_TIME_SLOTS.map(time => (
+                        <option disabled={!availableBookingTimesSet.has(time)} key={time} value={time}>
+                          {time}{availableBookingTimesSet.has(time) ? '' : ' (unavailable)'}
                         </option>
                       ))}
                     </select>
                   </label>
                   <label className="field-block">
                     <span>Meeting type</span>
-                    <select value={bookingCategory} onChange={event => setBookingCategory(event.target.value as BookingCategory)}>
-                      {availableCategories.map(category => (
-                        <option key={category} value={category}>
+                    <select
+                      disabled={!bookingTime || busyKey === 'booking-form-availability'}
+                      value={bookingCategory}
+                      onChange={event => setBookingCategory(event.target.value as BookingCategory)}
+                    >
+                      {BOOKING_CATEGORY_OPTIONS.map(category => (
+                        <option disabled={!availableCategoriesSet.has(category)} key={category} value={category}>
                           {category}
                         </option>
                       ))}

@@ -24,17 +24,17 @@ export function getAvailableBookingTimes(
   selectedPersonId: string,
   bookingDate: string
 ): string[] {
-  if (!availability) {
-    return DEFAULT_TIME_SLOTS;
+  if (!selectedPersonId || !bookingDate) {
+    return [];
   }
 
-  if (!selectedPersonId || !bookingDate) {
+  if (!availability) {
     return DEFAULT_TIME_SLOTS;
   }
 
   const personEntry = availability.data.find(person => person.personId === selectedPersonId);
   if (!personEntry) {
-    return DEFAULT_TIME_SLOTS;
+    return [];
   }
 
   const dateEntry = personEntry.dates.find(date => date.date === bookingDate);
@@ -55,23 +55,27 @@ export function getAvailableCategoriesForSlot(
   bookingDate: string,
   bookingTime: string
 ): BookingCategory[] {
-  if (!availability || !selectedPersonId || !bookingDate || !bookingTime) {
+  if (!selectedPersonId || !bookingDate || !bookingTime) {
+    return [];
+  }
+
+  if (!availability) {
     return ALL_BOOKING_CATEGORIES;
   }
 
   const personEntry = availability.data.find(person => person.personId === selectedPersonId);
   if (!personEntry) {
-    return ALL_BOOKING_CATEGORIES;
+    return [];
   }
 
   const dateEntry = personEntry.dates.find(date => date.date === bookingDate);
   if (!dateEntry) {
-    return ALL_BOOKING_CATEGORIES;
+    return [];
   }
 
   const matchingSlot = dateEntry.slots.find(slot => slot.startTime === bookingTime);
   if (!matchingSlot || !matchingSlot.categories || matchingSlot.categories.length === 0) {
-    return ALL_BOOKING_CATEGORIES;
+    return [];
   }
 
   return matchingSlot.categories.filter((category): category is BookingCategory =>
