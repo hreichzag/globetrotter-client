@@ -19,6 +19,7 @@ import {
   parseDefinitions,
   parsePersonCalendars,
   parsePersons,
+  parsePersonSkillIds,
   parseSkills,
   parseWorkLocation,
   readStoredConfig,
@@ -77,7 +78,9 @@ export function App() {
   const [customerName, setCustomerName] = useState('Ada Lovelace');
   const [emailAddress, setEmailAddress] = useState('ada@example.com');
   const [phoneNumber, setPhoneNumber] = useState('+41 79 000 00 00');
-  const [selectedSkillId, setSelectedSkillId] = useState('');
+  const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([]);
+  const [selectedLanguageCodes, setSelectedLanguageCodes] = useState<string[]>([]);
+  const [personSkillIds, setPersonSkillIds] = useState<Set<string>>(new Set());
   const [bookingError, setBookingError] = useState<string | null>(null);
 
   const [successfulBookingKeys, setSuccessfulBookingKeys] = useState<Set<string>>(new Set());
@@ -123,7 +126,18 @@ export function App() {
 
   const interactiveDocsUrl = buildUrl(host, '/api/docs#v1');
   const v1JsonUrl = buildUrl(host, '/api/docs/openapi/v1.json');
-  const selectedSkillName = useMemo(() => skills.find(skill => skill.id === selectedSkillId)?.name ?? '', [selectedSkillId, skills]);
+  const destinationSkills = useMemo(() => {
+    const all = skills.filter(s => s.data?.customProperties?.type !== 'language');
+    return personSkillIds.size > 0 ? all.filter(s => personSkillIds.has(s.id)) : all;
+  }, [personSkillIds, skills]);
+  const languageSkills = useMemo(
+    () => {
+      const all = skills.filter(s => s.data?.customProperties?.type === 'language' && s.data.customProperties.code);
+      const filtered = personSkillIds.size > 0 ? all.filter(s => personSkillIds.has(s.id)) : all;
+      return filtered.map(s => ({ code: s.data!.customProperties!.code!, name: s.name }));
+    },
+    [personSkillIds, skills]
+  );
 
   const bookingPayload = buildBookingPayload({
     bookingCategory,
@@ -132,8 +146,8 @@ export function App() {
     customerName,
     emailAddress,
     phoneNumber,
-    selectedSkillId,
-    selectedSkillName,
+    destinationSkillIds: selectedSkillIds,
+    requiredLanguages: selectedLanguageCodes,
   });
 
   const currentBookingAttemptKey = deriveBookingAttemptKeyFromParts(selectedCalendarId, bookingDate, bookingTime);
@@ -206,6 +220,41 @@ export function App() {
     };
   }, [apiKey, bookingDate, host, selectedPersonId]);
 
+  useEffect(() => {
+    if (!selectedPersonId || !canRunReadCall(host, apiKey)) {
+      setPersonSkillIds(new Set());
+      setSelectedSkillIds([]);
+      setSelectedLanguageCodes([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function refreshPersonSkills() {
+      const record = await runCall({
+        key: 'person-skills',
+        title: 'Load skills for selected consultant',
+        path: `/api/v1/core/persons/${selectedPersonId}/skills`,
+        query: { take: '200' },
+      });
+
+      if (cancelled || !record.response.ok) {
+        return;
+      }
+
+      const ids = new Set(parsePersonSkillIds(record.response.data));
+      setPersonSkillIds(ids);
+      setSelectedSkillIds([]);
+      setSelectedLanguageCodes([]);
+    }
+
+    void refreshPersonSkills();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [apiKey, host, selectedPersonId]);
+
   async function runPersonsCall() {
     const record = await runCall({
       key: 'persons',
@@ -263,9 +312,6 @@ export function App() {
     if (record.response.ok) {
       const nextSkills = parseSkills(record.response.data);
       setSkills(nextSkills);
-      if (!selectedSkillId && nextSkills[0]) {
-        setSelectedSkillId(nextSkills[0].id);
-      }
     }
   }
 
@@ -629,9 +675,10 @@ export function App() {
             latestCall={findCall(calls, 'skills')}
             method="GET"
             permission="skills:read"
-            title="4. List destination skills"
+            title="4. List destination skills &amp; languages"
           >
-            Load destination catalog for skill references like <code>destinationSkill</code>. In real integration, paginate until{' '}
+            Load skill catalog. Destination skills (non-language) map to <code>destinationSkillIds</code>. Language skills
+            {' '}(<code>{"data.customProperties.type === 'language'"}</code>) map to <code>requiredLanguages</code> ISO codes. Paginate until{' '}
             <code>pageInfo.hasMore</code> is false.
           </EndpointCard>
 
@@ -652,7 +699,8 @@ export function App() {
             permission="calendars:read"
             title="5. List booking custom fields"
           >
-            Discover which booking fields exist for calendar slots, for example <code>meetingType</code> or <code>destinationSkill</code>.
+            Discover which booking fields exist for calendar slots, for example <code>meetingType</code>, <code>destinationSkillIds</code>, or{' '}
+            <code>requiredLanguages</code>.
           </EndpointCard>
 
           <EndpointCard
@@ -784,12 +832,31 @@ export function App() {
                     <input value={phoneNumber} onChange={event => setPhoneNumber(event.target.value)} />
                   </label>
                   <label className="field-block">
-                    <span>Destination skill</span>
-                    <select value={selectedSkillId} onChange={event => setSelectedSkillId(event.target.value)}>
-                      <option value="">Select skill</option>
-                      {skills.map(skill => (
+                    <span>Destination skills</span>
+                    <select
+                      multiple
+                      size={Math.min(Math.max(destinationSkills.length, 1), 6)}
+                      value={selectedSkillIds}
+                      onChange={event => setSelectedSkillIds(Array.from(event.target.selectedOptions, opt => opt.value))}
+                    >
+                      {destinationSkills.map(skill => (
                         <option key={skill.id} value={skill.id}>
                           {skill.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="field-block">
+                    <span>Languages</span>
+                    <select
+                      multiple
+                      size={Math.min(Math.max(languageSkills.length, 1), 5)}
+                      value={selectedLanguageCodes}
+                      onChange={event => setSelectedLanguageCodes(Array.from(event.target.selectedOptions, opt => opt.value))}
+                    >
+                      {languageSkills.map(lang => (
+                        <option key={lang.code} value={lang.code}>
+                          {lang.name}
                         </option>
                       ))}
                     </select>
@@ -829,8 +896,9 @@ export function App() {
             title="8. Create booking slot"
             tone="danger"
           >
-            This writes real booking data into selected consultant calendar. Client also fills slot-level translations for <code>en</code>,{' '}
-            <code>de</code>, <code>fr</code>, and <code>it</code> inside booking payload.
+            This writes real booking data into selected consultant calendar. Client stores multiple destination skill IDs in{' '}
+            <code>destinationSkillIds</code> and language ISO codes in <code>requiredLanguages</code>. Slot-level translations for{' '}
+            <code>en</code>, <code>de</code>, <code>fr</code>, and <code>it</code> are also included.
           </EndpointCard>
         </section>
 

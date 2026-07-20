@@ -1,5 +1,5 @@
 export { executeRequest, executeRecordedRequest, buildUrl, formatJson } from './http';
-export { parsePersons, parsePersonCalendars, parseSkills, parseDefinitions, parseAvailability, parseWorkLocation } from './parsers';
+export { parsePersons, parsePersonCalendars, parsePersonSkillIds, parseSkills, parseDefinitions, parseAvailability, parseWorkLocation } from './parsers';
 export { isRecord, readString, readNullableString, readNumber, readStringArray, readDataArray } from './parsers';
 export { readAvailabilityDates, readAvailabilitySlots } from './parsers';
 export { buildBookingPayload, buildBookingDescription, translateCategory, bookingIconByCategory, addMinutes } from './booking-payload';

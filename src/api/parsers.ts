@@ -1,4 +1,4 @@
-import type { AvailabilityResponse, CustomPropertyDefinition, Person, PersonCalendar, Skill, WorkLocationResolution } from '../types';
+import type { AvailabilityResponse, CustomPropertyDefinition, Person, PersonCalendar, Skill, SkillData, WorkLocationResolution } from '../types';
 
 export function parsePersons(value: unknown): Person[] {
   return readDataArray(value)
@@ -20,13 +20,33 @@ export function parsePersonCalendars(value: unknown): PersonCalendar[] {
     .filter(calendar => calendar.id && calendar.name);
 }
 
+export function parsePersonSkillIds(value: unknown): string[] {
+  return readDataArray(value)
+    .map(item => readString(item.skillId) || readString(item.id))
+    .filter(Boolean);
+}
+
 export function parseSkills(value: unknown): Skill[] {
   return readDataArray(value)
     .map(item => ({
       id: readString(item.id),
       name: readString(item.name),
+      data: parseSkillData(item.data),
     }))
     .filter(skill => skill.id && skill.name);
+}
+
+function parseSkillData(value: unknown): SkillData | null {
+  if (!isRecord(value)) return null;
+  const cp = isRecord(value.customProperties) ? value.customProperties : null;
+  if (!cp) return { customProperties: undefined };
+  return {
+    customProperties: {
+      type: readString(cp['type']) || undefined,
+      code: readString(cp['code']) || undefined,
+      region: readString(cp['region']) || undefined,
+    },
+  };
 }
 
 export function parseDefinitions(value: unknown): CustomPropertyDefinition[] {

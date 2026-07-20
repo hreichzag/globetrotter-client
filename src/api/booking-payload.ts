@@ -26,11 +26,11 @@ export function buildBookingPayload(input: {
   customerName: string;
   emailAddress: string;
   phoneNumber: string;
-  selectedSkillId: string;
-  selectedSkillName: string;
+  destinationSkillIds: string[];
+  requiredLanguages: string[];
 }) {
   const slotId = `new-gt-${input.bookingDate}-${input.bookingTime.replace(':', '')}`;
-  const customProperties: Record<string, string> = {
+  const customProperties: Record<string, string | string[]> = {
     meetingType: input.bookingCategory,
   };
 
@@ -43,16 +43,20 @@ export function buildBookingPayload(input: {
   if (input.phoneNumber.trim()) {
     customProperties['phoneNumber'] = input.phoneNumber.trim();
   }
-  if (input.selectedSkillId.trim()) {
-    customProperties['destinationSkill'] = input.selectedSkillId.trim();
+  if (input.destinationSkillIds.length > 0) {
+    customProperties['destinationSkillIds'] = input.destinationSkillIds;
+  }
+  if (input.requiredLanguages.length > 0) {
+    customProperties['requiredLanguages'] = input.requiredLanguages;
   }
 
-  const descriptionBase = buildBookingDescription(input.bookingCategory, input.customerName, input.selectedSkillName);
+  const descriptionBase = buildBookingDescription(input.bookingCategory, input.customerName);
   return {
     slots: {
       [slotId]: {
         dateFrom: input.bookingDate,
         dateTo: null,
+        type: 'external-booking',
         data: {
           text: LANGUAGE_LABELS.en.bookingTitle(input.bookingCategory),
           description: LANGUAGE_LABELS.en.bookingDescription(descriptionBase),
@@ -85,11 +89,8 @@ export function buildBookingPayload(input: {
   };
 }
 
-export function buildBookingDescription(category: BookingCategory, customerName: string, selectedSkillName: string): string {
+export function buildBookingDescription(category: BookingCategory, customerName: string): string {
   const parts = [customerName.trim() || 'customer'];
-  if (selectedSkillName.trim()) {
-    parts.push(selectedSkillName.trim());
-  }
   parts.push(category);
   return parts.join(' - ');
 }

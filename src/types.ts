@@ -10,9 +10,20 @@ export interface PersonCalendar {
   type: string;
 }
 
+export interface SkillCustomProperties {
+  type?: string;
+  code?: string;
+  region?: string;
+}
+
+export interface SkillData {
+  customProperties?: SkillCustomProperties;
+}
+
 export interface Skill {
   id: string;
   name: string;
+  data?: SkillData | null;
 }
 
 export interface CustomPropertyDefinition {
