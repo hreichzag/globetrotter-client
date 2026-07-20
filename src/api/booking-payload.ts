@@ -56,8 +56,8 @@ export function buildBookingPayload(input: {
       [slotId]: {
         dateFrom: input.bookingDate,
         dateTo: null,
-        type: 'external-booking',
         data: {
+          type: 'external-booking',
           text: LANGUAGE_LABELS.en.bookingTitle(input.bookingCategory),
           description: LANGUAGE_LABELS.en.bookingDescription(descriptionBase),
           translations: {

@@ -135,6 +135,9 @@ sequenceDiagram
     GT->>API: GET /calendar/availability?...needs=shift.bookable...
     API-->>GT: booking-ready 15-minute slots
 
+    GT->>API: GET /core/persons/{personId}/skills?take=200
+    API-->>GT: skill assignments for selected consultant
+
     loop for each (personId, date) with available slots
         GT->>API: GET /core/persons/{personId}/locations/work-location?date=YYYY-MM-DD
         API-->>GT: effective work-location entries
@@ -159,7 +162,7 @@ Relevant facts:
 
 - Permission: `employees:read`
 - Response includes person record plus domain enrichments
-- Globetrotter demo reads `locations` and `planning.skills` from this payload
+- Globetrotter demo reads `locations` from this payload; consultant skill assignments are loaded separately via step 4
 
 Example:
 
@@ -187,14 +190,44 @@ Relevant facts:
 GET /api/v1/core/skills?take=200&skip=0
 ```
 
-Use this when destination/qualification display is needed.
+Use this to populate destination and language skill options.
 
 Relevant facts:
 
 - Permission: `skills:read`
 - Paginate until `pageInfo.hasMore === false`
+- Skills carry a free-form `data.customProperties` bag. Globetrotter reads two well-known fields from it:
+  - `type`: when `"language"`, the skill is a spoken-language skill; otherwise it is a destination skill
+  - `code`: ISO 639-1 language code (only present on language skills), used as the stored value in `requiredLanguages`
+  - `region`: optional grouping label for destination skills (e.g. `"Europa"`, `"Asien"`)
+- Destination skills and language skills both live in the same `skills` endpoint — the client differentiates them by `data.customProperties.type`
 
-### 4. Load booking field definitions
+### 4. Load consultant skill assignments
+
+```text
+GET /api/v1/core/persons/{personId}/skills?take=200
+```
+
+Fetch the skills actually assigned to the selected consultant. Use the returned skill IDs to filter the global skill catalog so the booking form only shows destinations and languages the consultant is qualified for.
+
+Relevant facts:
+
+- Permission: `employees:read`
+- Each item in `data[]` contains a `skillId` field (the referenced skill's ID)
+- Re-fetch whenever the selected consultant changes; reset booking skill/language selections accordingly
+
+Example response shape:
+
+```json
+{
+  "data": [
+    { "id": "asgn_abc", "skillId": "skl_thailand", "rating": 4 },
+    { "id": "asgn_def", "skillId": "skl_lang_de", "rating": null }
+  ]
+}
+```
+
+### 5. Load booking field definitions
 
 ```text
 GET /api/v1/core/custom-property-definitions?entityType=calendar-slot
@@ -207,7 +240,7 @@ Relevant facts:
 - Read access is granted for calendar users; `calendars:read` is sufficient
 - Full admin write to definitions requires `settings:update`
 
-### 5. Load booking-ready availability
+### 6. Load booking-ready availability
 
 ```text
 GET /api/v1/calendar/availability
@@ -280,7 +313,7 @@ Response shape:
 }
 ```
 
-### 6. Resolve effective work location per consultant/day
+### 7. Resolve effective work location per consultant/day
 
 ```text
 GET /api/v1/core/persons/{personId}/locations/work-location?date=YYYY-MM-DD
@@ -318,7 +351,7 @@ Example response:
 }
 ```
 
-### 7. Optional: load location assignment metadata
+### 8. Optional: load location assignment metadata
 
 ```text
 GET /api/v1/calendar/assignments/by-location/{locationId}
@@ -343,7 +376,8 @@ Recommended fields used by Globetrotter:
 - `phoneNumber` (`text` / phone)
 - `emailAddress` (`text` / email)
 - `meetingType` (`select`)
-- `destinationSkill` (`reference` to `skill`)
+- `destinationSkillIds` (`reference` to `skill`, `multiple: true`) — stores an array of destination skill IDs
+- `requiredLanguages` (`multi-select`) — stores an array of ISO 639-1 language codes
 
 Endpoint:
 
@@ -377,14 +411,36 @@ Example create payload:
       "dateFrom": "2026-06-10",
       "dateTo": null,
       "data": {
-        "text": "Beratung",
+        "type": "external-booking",
+        "text": "Globetrotter booking: Video call",
+        "description": "Globetrotter booking details: Ada Lovelace - Video call.",
         "icon": "videocam",
         "isAllDay": false,
         "startTime": "09:00",
         "endTime": "09:15",
+        "translations": {
+          "en": {
+            "text": "Globetrotter booking: Video call",
+            "description": "Globetrotter booking details: Ada Lovelace - Video call."
+          },
+          "de": {
+            "text": "Globetrotter Buchung: Videoanruf",
+            "description": "Globetrotter Buchungsdetails: Ada Lovelace - Videoanruf."
+          },
+          "fr": {
+            "text": "Reservation Globetrotter : Appel video",
+            "description": "Details de reservation Globetrotter : Ada Lovelace - Appel video."
+          },
+          "it": {
+            "text": "Prenotazione Globetrotter: Videochiamata",
+            "description": "Dettagli prenotazione Globetrotter: Ada Lovelace - Videochiamata."
+          }
+        },
         "customProperties": {
           "meetingType": "Video call",
-          "destinationSkill": "skl_thailand",
+          "destinationSkillIds": ["skl_thailand", "skl_bali"],
+          "requiredLanguages": ["de", "en"],
+          "customerName": "Ada Lovelace",
           "emailAddress": "ada@example.com"
         }
       }
@@ -392,6 +448,12 @@ Example create payload:
   }
 }
 ```
+
+Key facts about `customProperties`:
+
+- `destinationSkillIds` — array of destination skill IDs the customer is booking for. Replaces the former single-value `destinationSkill` field. Must match IDs from the skill catalog that have `data.customProperties.type !== "language"`.
+- `requiredLanguages` — array of ISO 639-1 language codes (e.g. `["de", "en"]`). Values must be valid codes from language skills (`data.customProperties.type === "language"`) assigned to the consultant.
+- `type: "external-booking"` is required in `data` so the availability service's blocker dispatch recognises the slot and excludes it from subsequent availability queries.
 
 Example call:
 
@@ -407,22 +469,27 @@ Relevant facts:
 
 - Permission: `calendars:update`
 - Booking is stored as calendar slot on consultant calendar
+- Slot `data.type` must be `"external-booking"` so the availability service treats it as a blocker
 - Slot `customProperties.meetingType` is the source of truth for meeting category
+- Slot `customProperties.destinationSkillIds` is an array of destination skill IDs (not a single ID)
+- Slot `customProperties.requiredLanguages` is an array of ISO 639-1 language codes
 - Slot custom properties are validated against configured `calendar-slot` definitions
 - Some properties are conditionally required based on selected `meetingType`
+- Client fills slot-level `translations` for `en`, `de`, `fr`, and `it` so SmartCapacity UI renders localised text
 
 ## Entities Read and Written
 
-| Entity                     | Endpoint(s)                                               | Used for                                  | Read/Write                 |
-| -------------------------- | --------------------------------------------------------- | ----------------------------------------- | -------------------------- |
-| API key                    | `/api/v1/users/me/api-keys`                               | Bootstrap runtime credentials             | Write once, then read/list |
-| Person                     | `/api/v1/core/persons`                                    | Consultant catalog                        | Read                       |
-| Person calendar            | `/api/v1/core/persons/{personId}/calendars`               | Resolve target calendar for booking       | Read                       |
-| Skill                      | `/api/v1/core/skills`                                     | Destination metadata and skill references | Read                       |
-| Custom property definition | `/api/v1/core/custom-property-definitions`                | Booking field schema                      | Read and optional write    |
-| Availability projection    | `/api/v1/calendar/availability`                           | Bookable 15-minute slots                  | Read                       |
-| Work-location resolution   | `/api/v1/core/persons/{personId}/locations/work-location` | Final day/time location context           | Read                       |
-| Calendar slot              | `/api/v1/calendar/calendars/{calendarId}`                 | Actual persisted booking                  | Write                      |
+| Entity                     | Endpoint(s)                                               | Used for                                                       | Read/Write                 |
+| -------------------------- | --------------------------------------------------------- | -------------------------------------------------------------- | -------------------------- |
+| API key                    | `/api/v1/users/me/api-keys`                               | Bootstrap runtime credentials                                  | Write once, then read/list |
+| Person                     | `/api/v1/core/persons`                                    | Consultant catalog                                             | Read                       |
+| Person calendar            | `/api/v1/core/persons/{personId}/calendars`               | Resolve target calendar for booking                            | Read                       |
+| Person skill assignment    | `/api/v1/core/persons/{personId}/skills`                  | Filter destinations and languages to consultant's own skills   | Read                       |
+| Skill                      | `/api/v1/core/skills`                                     | Destination and language skill catalog                         | Read                       |
+| Custom property definition | `/api/v1/core/custom-property-definitions`                | Booking field schema                                           | Read and optional write    |
+| Availability projection    | `/api/v1/calendar/availability`                           | Bookable 15-minute slots                                       | Read                       |
+| Work-location resolution   | `/api/v1/core/persons/{personId}/locations/work-location` | Final day/time location context                                | Read                       |
+| Calendar slot              | `/api/v1/calendar/calendars/{calendarId}`                 | Actual persisted booking                                       | Write                      |
 
 ## Recommended Integration Pattern
 
@@ -436,10 +503,12 @@ Relevant facts:
 
 1. Load persons.
 2. Load per-person calendars.
-3. Load skills and booking field definitions.
-4. Query availability with `needs=shift.bookable`.
-5. For each available consultant/date, resolve work location.
-6. When customer confirms booking, patch consultant individual calendar with new slot.
+3. Load full skill catalog (destination and language skills).
+4. When consultant is selected, load that consultant's skill assignments to filter available destinations and languages.
+5. Load booking field definitions.
+6. Query availability with `needs=shift.bookable`.
+7. For each available consultant/date, resolve work location.
+8. When customer confirms booking, patch consultant individual calendar with new slot, including `destinationSkillIds` (array) and `requiredLanguages` (array of ISO codes).
 
 ## Operational Notes
 
